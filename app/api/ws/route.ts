@@ -1,18 +1,20 @@
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import { NextResponse } from 'next/server';
+import { IncomingMessage } from 'http';
 
 // 存储房间和用户信息
 const rooms: { [key: string]: Set<WebSocket> } = {};
 
-export async function GET(req: Request) {
-  if (!global.wss) {
-    const wss = new WebSocketServer({ noServer: true });
-    global.wss = wss;
+// 确保 WebSocket 服务器只初始化一次
+if (!global.wss) {
+  const wss = new WebSocketServer({ noServer: true });
+  global.wss = wss;
 
-    wss.on('connection', (ws) => {
-      let currentRoom: string | null = null;
+  wss.on('connection', (ws: WebSocket) => {
+    let currentRoom: string | null = null;
 
-      ws.on('message', (message) => {
+    ws.on('message', (message) => {
+      try {
         const data = JSON.parse(message.toString());
 
         switch (data.type) {
@@ -29,7 +31,7 @@ export async function GET(req: Request) {
                 if (client !== ws) {
                   client.send(JSON.stringify({
                     type: 'user-joined',
-                    userId: ws.url
+                    userId: data.userId || 'unknown'
                   }));
                 }
               });
@@ -42,30 +44,48 @@ export async function GET(req: Request) {
             // 转发信令消息给目标用户
             if (currentRoom && rooms[currentRoom]) {
               rooms[currentRoom].forEach((client) => {
-                if (client.url === data.target) {
+                if (client !== ws) {
                   client.send(JSON.stringify(data));
                 }
               });
             }
             break;
         }
-      });
-
-      ws.on('close', () => {
-        if (currentRoom && rooms[currentRoom]) {
-          rooms[currentRoom].delete(ws);
-          if (rooms[currentRoom].size === 0) {
-            delete rooms[currentRoom];
-          }
-        }
-      });
+      } catch (error) {
+        console.error('Error processing message:', error);
+      }
     });
+
+    ws.on('close', () => {
+      if (currentRoom && rooms[currentRoom]) {
+        rooms[currentRoom].delete(ws);
+        if (rooms[currentRoom].size === 0) {
+          delete rooms[currentRoom];
+        }
+      }
+    });
+  });
+}
+
+export async function GET(req: Request) {
+  if (!global.wss) {
+    return new NextResponse('WebSocket server not initialized', { status: 500 });
   }
 
-  const { socket: ws, response } = await global.wss.handleUpgrade(req);
-  global.wss.emit('connection', ws);
+  // 将 Request 转换为 IncomingMessage
+  const incomingMessage = req as unknown as IncomingMessage;
 
-  return response;
+  return new Promise<NextResponse>((resolve) => {
+    global.wss!.handleUpgrade(
+      incomingMessage,
+      incomingMessage.socket,
+      Buffer.alloc(0),
+      (ws) => {
+        global.wss!.emit('connection', ws);
+        resolve(new NextResponse());
+      }
+    );
+  });
 }
 
 // 扩展全局类型

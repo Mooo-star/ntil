@@ -213,7 +213,7 @@ function VideoCall() {
         <div className="w-full max-w-md bg-white rounded-lg shadow-lg p-6">
           <h2 className="text-2xl font-bold mb-4">加入视频通话</h2>
           <div className="space-y-4">
-            <div>
+            <div className="flex flex-col gap-2">
               <Label htmlFor="roomId">房间号</Label>
               <Input
                 id="roomId"
